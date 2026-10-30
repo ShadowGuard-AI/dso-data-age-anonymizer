@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # dso-data-age-anonymizer
 Shifts dates in data by a random interval, preserving relative time relationships while anonymizing specific date information. Can be configured with a maximum shift interval. - Focused on Tools for sanitizing and obfuscating sensitive data within text files and structured data formats
 
