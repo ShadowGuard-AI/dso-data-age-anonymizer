@@ -19,7 +19,7 @@ def setup_argparse():
     parser.add_argument('output_file', help='Path to the output file.')
     parser.add_argument('--max_shift_days', type=int, default=365, help='Maximum number of days to shift dates by. Defaults to 365.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility. Defaults to None.')
-    parser.add_argument('--date_format', type=str, default='%Y-%m-%d', help='Date format to search for. Defaults to %Y-%m-%d.')
+    parser.add_argument('--date_format', type=str, default='%Y-%m-%d', help='Date format to search for. Defaults to %%Y-%%m-%%d.')
     parser.add_argument('--encoding', type=str, default=None, help='Encoding of the input file. If not specified, it will be detected automatically.')
     return parser.parse_args()
 
