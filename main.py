@@ -5,7 +5,7 @@ import random
 import re
 import os
 import chardet
-from faker import Faker
+import sys
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,7 +36,7 @@ def detect_encoding(file_path):
         logging.error(f"Error detecting encoding: {e}")
         return None
 
-def shift_date(date_str, max_shift_days, date_format, random_state):
+def shift_date(date_str, shift_days, date_format):
     """
     Shifts a date by a random interval.
 
@@ -51,7 +51,6 @@ def shift_date(date_str, max_shift_days, date_format, random_state):
     """
     try:
         date_obj = datetime.datetime.strptime(date_str, date_format).date()
-        shift_days = random_state.randint(-max_shift_days, max_shift_days)
         shifted_date = date_obj + datetime.timedelta(days=shift_days)
         return shifted_date.strftime(date_format)
     except ValueError as e:
@@ -76,13 +75,13 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
 
     if not os.path.exists(input_file):
         logging.error(f"Input file not found: {input_file}")
-        return
+        return False
 
     if encoding is None:
         encoding = detect_encoding(input_file)
         if encoding is None:
             logging.error("Could not detect file encoding. Please specify it using --encoding.")
-            return
+            return False
 
     try:
         with open(input_file, 'r', encoding=encoding, errors='ignore') as infile, \
@@ -91,10 +90,16 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
             random_state = random.Random(seed)  # Initialize random number generator
             date_regex = re.compile(r'\d{4}-\d{2}-\d{2}') # Basic YYYY-MM-DD regex
 
+            # One shift is drawn for the whole file, not one per date. The
+            # point of the tool is hiding absolute dates while keeping the
+            # gaps between them, and a fresh draw per date scrambles those
+            # gaps and can reorder events that were days apart.
+            shift_days = random_state.randint(-max_shift_days, max_shift_days)
+
             for line in infile:
                 def replace_date(match):
                     date_str = match.group(0)
-                    shifted_date = shift_date(date_str, max_shift_days, date_format, random_state)
+                    shifted_date = shift_date(date_str, shift_days, date_format)
                     if shifted_date:
                         return shifted_date
                     else:
@@ -103,9 +108,11 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
                 anonymized_line = date_regex.sub(replace_date, line)
                 outfile.write(anonymized_line)
         logging.info(f"Successfully anonymized data from {input_file} to {output_file}")
+        return True
 
     except Exception as e:
         logging.error(f"An error occurred during anonymization: {e}")
+        return False
 
 def main():
     """
@@ -116,9 +123,10 @@ def main():
     # Input validation: Ensure max_shift_days is a positive integer
     if args.max_shift_days <= 0:
         logging.error("max_shift_days must be a positive integer.")
-        return
-    
-    anonymize_data(args.input_file, args.output_file, args.max_shift_days, args.seed, args.date_format, args.encoding)
+        sys.exit(1)
+
+    if not anonymize_data(args.input_file, args.output_file, args.max_shift_days, args.seed, args.date_format, args.encoding):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
