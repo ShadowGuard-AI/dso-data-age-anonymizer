@@ -60,6 +60,31 @@ def shift_date(date_str, shift_days, date_format):
         logging.error(f"Error shifting date {date_str}: {e}")
         return None
 
+def pattern_from_format(date_format):
+    """Build a search pattern from a strptime style date format.
+
+    Each directive becomes the digit or name shape it matches, and
+    every other character is matched literally, so a run with
+    --date_format %d/%m/%Y searches for dates written that way.
+    """
+    directives = {
+        'Y': r'\d{4}', 'y': r'\d{2}', 'm': r'\d{2}', 'd': r'\d{2}',
+        'H': r'\d{2}', 'M': r'\d{2}', 'S': r'\d{2}', 'j': r'\d{3}',
+        'b': r'[A-Za-z]+', 'B': r'[A-Za-z]+', 'a': r'[A-Za-z]+',
+        'A': r'[A-Za-z]+', 'p': r'[A-Za-z]+', '%': '%',
+    }
+    parts = []
+    i = 0
+    while i < len(date_format):
+        ch = date_format[i]
+        if ch == '%' and i + 1 < len(date_format) and date_format[i + 1] in directives:
+            parts.append(directives[date_format[i + 1]])
+            i += 2
+        else:
+            parts.append(re.escape(ch))
+            i += 1
+    return ''.join(parts)
+
 def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, encoding=None):
     """
     Anonymizes dates in the input file and writes the result to the output file.
@@ -77,6 +102,10 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
         logging.error(f"Input file not found: {input_file}")
         return False
 
+    if os.path.realpath(output_file) == os.path.realpath(input_file):
+        logging.error("Refusing to run: output path resolves to the input file.")
+        return False
+
     if encoding is None:
         encoding = detect_encoding(input_file)
         if encoding is None:
@@ -84,29 +113,40 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
             return False
 
     try:
-        with open(input_file, 'r', encoding=encoding, errors='ignore') as infile, \
-                open(output_file, 'w', encoding=encoding) as outfile:
+        # The input is read in full and closed before any output is
+        # opened, so a failed or refused run leaves the input intact.
+        with open(input_file, 'r', encoding=encoding, errors='ignore') as infile:
+            content = infile.read()
 
-            random_state = random.Random(seed)  # Initialize random number generator
-            date_regex = re.compile(r'\d{4}-\d{2}-\d{2}') # Basic YYYY-MM-DD regex
+        random_state = random.Random(seed)  # Initialize random number generator
+        date_regex = re.compile(pattern_from_format(date_format))
 
-            # One shift is drawn for the whole file, not one per date. The
-            # point of the tool is hiding absolute dates while keeping the
-            # gaps between them, and a fresh draw per date scrambles those
-            # gaps and can reorder events that were days apart.
-            shift_days = random_state.randint(-max_shift_days, max_shift_days)
+        # One shift is drawn for the whole file, not one per date. The
+        # point of the tool is hiding absolute dates while keeping the
+        # gaps between them, and a fresh draw per date scrambles those
+        # gaps and can reorder events that were days apart.
+        shift_days = random_state.randint(-max_shift_days, max_shift_days)
 
-            for line in infile:
-                def replace_date(match):
-                    date_str = match.group(0)
-                    shifted_date = shift_date(date_str, shift_days, date_format)
-                    if shifted_date:
-                        return shifted_date
-                    else:
-                        return date_str  # Return original date if shifting fails
-                    
-                anonymized_line = date_regex.sub(replace_date, line)
-                outfile.write(anonymized_line)
+        shifted_count = [0]
+
+        def replace_date(match):
+            date_str = match.group(0)
+            shifted_date = shift_date(date_str, shift_days, date_format)
+            if shifted_date:
+                shifted_count[0] += 1
+                return shifted_date
+            else:
+                return date_str  # Return original date if shifting fails
+
+        anonymized = date_regex.sub(replace_date, content)
+
+        if shifted_count[0] == 0:
+            logging.info("No dates shifted.")
+            print("No dates shifted.")
+            return False
+
+        with open(output_file, 'w', encoding=encoding) as outfile:
+            outfile.write(anonymized)
         logging.info(f"Successfully anonymized data from {input_file} to {output_file}")
         return True
 
