@@ -73,6 +73,11 @@ def pattern_from_format(date_format):
         'b': r'[A-Za-z]+', 'B': r'[A-Za-z]+', 'a': r'[A-Za-z]+',
         'A': r'[A-Za-z]+', 'p': r'[A-Za-z]+', '%': '%',
     }
+    # The pattern built here has no boundaries on either side, and I have
+    # watched what that does: in the text 12023-02-20 the pattern finds
+    # 2023-02-20 starting one digit in, and shifts that, producing
+    # 12023-02-17. It also demands exactly two digits for month and day,
+    # so a real date written 2023-1-5 is never found at all.
     parts = []
     i = 0
     while i < len(date_format):
@@ -115,6 +120,10 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
     try:
         # The input is read in full and closed before any output is
         # opened, so a failed or refused run leaves the input intact.
+        # errors='ignore' is the sharp edge in this read: bytes that do
+        # not decode in the detected encoding are dropped silently, so a
+        # file can lose characters that have nothing to do with its dates
+        # and no log line records the loss.
         with open(input_file, 'r', encoding=encoding, errors='ignore') as infile:
             content = infile.read()
 
@@ -128,6 +137,13 @@ def anonymize_data(input_file, output_file, max_shift_days, seed, date_format, e
         shift_days = random_state.randint(-max_shift_days, max_shift_days)
 
         shifted_count = [0]
+        # Two honest notes on this draw and this counter. The range
+        # includes zero, so a run can shift every date by nothing and
+        # still count them all as shifted, and the count below reflects
+        # that. And a text that matches the pattern's shape but is not a
+        # real date, like 2023-13-45, fails strptime inside shift_date and
+        # is returned unchanged without counting, so it sits in the output
+        # as it was while the run succeeds on the dates around it.
 
         def replace_date(match):
             date_str = match.group(0)
